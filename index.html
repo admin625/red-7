@@ -5,125 +5,171 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#166534">
+  <meta name="theme-color" content="#0a0a0a">
   <title>Red 7 Card Counting Trainer</title>
-  
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script> 
-  
-  <!-- React and ReactDOM -->
+
+  <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  
-  <!-- Babel Standalone for JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
+
   <style>
-    body {
-      margin: 0;
-      padding: 0;
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%; overflow: hidden;
       -webkit-tap-highlight-color: transparent;
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
+      background: #0a0a0a;
     }
-    input {
-      -webkit-user-select: text;
-      user-select: text;
+    input, button { -webkit-user-select: text; user-select: text; }
+    #root { height: 100%; }
+
+    /* Speed slider custom styling */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #22c55e 100%);
+      outline: none;
     }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: white;
+      border: 3px solid #1a1a2e;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: white;
+      border: 3px solid #1a1a2e;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      cursor: pointer;
+    }
+
+    /* Card flip animation */
+    @keyframes cardIn {
+      0% { transform: scale(0.7) rotateY(90deg); opacity: 0; }
+      100% { transform: scale(1) rotateY(0deg); opacity: 1; }
+    }
+    .card-animate {
+      animation: cardIn 0.2s ease-out;
+    }
+
+    /* Pulse animation for running indicator */
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .pulse-dot { animation: pulse-dot 1s infinite; }
+
+    /* Slide up animation for verification panel */
+    @keyframes slideUp {
+      0% { transform: translateY(100%); opacity: 0; }
+      100% { transform: translateY(0); opacity: 1; }
+    }
+    .slide-up { animation: slideUp 0.3s ease-out; }
+
+    /* Number input - remove spinners */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] { -moz-appearance: textfield; }
   </style>
 </head>
 <body>
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useRef, useCallback } = React;
 
-    // Icon components
-    const PlayIcon = () => (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polygon points="5 3 19 12 5 21 5 3"></polygon>
-      </svg>
-    );
+    // ── Game phases ──
+    const PHASE = {
+      SETUP: 'setup',      // Initial screen - settings + start
+      RUNNING: 'running',  // Cards flashing
+      PAUSED: 'paused',    // Paused mid-run
+      VERIFY: 'verify',    // Enter your count
+      RESULT: 'result',    // Show correct/incorrect
+    };
 
-    const PauseIcon = () => (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="6" y="4" width="4" height="16"></rect>
-        <rect x="14" y="4" width="4" height="16"></rect>
-      </svg>
-    );
+    // ── Card rendering component ──
+    function CardDisplay({ card, speed }) {
+      const isRed = card.suit === '♥' || card.suit === '♦';
+      const color = isRed ? '#dc2626' : '#111827';
 
-    const RotateCcwIcon = () => (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="1 4 1 10 7 10"></polyline>
-        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-      </svg>
-    );
+      return (
+        <div className="card-animate flex flex-col items-center justify-center" style={{ color }}>
+          <div className="text-8xl sm:text-9xl font-black leading-none tracking-tight">{card.rank}</div>
+          <div className="text-9xl sm:text-[10rem] leading-none mt-1">{card.suit}</div>
+        </div>
+      );
+    }
 
-    const SettingsIcon = () => (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M12 1v6m0 6v6m-9-9h6m6 0h6"></path>
-        <path d="m4.93 4.93 4.24 4.24m5.66 0 4.24-4.24m0 14.14-4.24-4.24m-5.66 0-4.24 4.24"></path>
-      </svg>
-    );
+    // ── Speed label helper ──
+    function speedLabel(ms) {
+      const s = ms / 1000;
+      if (s <= 0.5) return 'Blazing';
+      if (s <= 0.8) return 'Fast';
+      if (s <= 1.2) return 'Medium';
+      if (s <= 1.8) return 'Steady';
+      return 'Slow';
+    }
 
-    const XIcon = () => (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-      </svg>
-    );
-
-    function Red7CardCountingTrainer() {
-      const [isPlaying, setIsPlaying] = useState(false);
-      const [speed, setSpeed] = useState(1500);
+    // ── Main App ──
+    function Red7Trainer() {
+      const [phase, setPhase] = useState(PHASE.SETUP);
+      const [speed, setSpeed] = useState(1200);
       const [deckCount, setDeckCount] = useState(6);
-      const [showSettings, setShowSettings] = useState(false);
-      
+
       const [shoe, setShoe] = useState([]);
       const [currentCardIndex, setCurrentCardIndex] = useState(0);
       const [trueCount, setTrueCount] = useState(0);
-      const [userCount, setUserCount] = useState('');
-      const [cardsDealt, setCardsDealt] = useState(0);
-      const [accuracy, setAccuracy] = useState({ correct: 0, total: 0 });
-      const [showFeedback, setShowFeedback] = useState(false);
-      const [isCorrect, setIsCorrect] = useState(false);
-      
-      const [recentCards, setRecentCards] = useState([]);
       const [currentCard, setCurrentCard] = useState(null);
+      const [cardKey, setCardKey] = useState(0);  // Force re-animate
+
+      const [userCount, setUserCount] = useState('');
+      const [result, setResult] = useState(null);  // { correct, trueCount, userCount, diff }
+      const [stats, setStats] = useState({ correct: 0, total: 0 });
+
       const intervalRef = useRef(null);
+      const inputRef = useRef(null);
+      const shoeRef = useRef([]);
+      const indexRef = useRef(0);
+      const countRef = useRef(0);
 
-      useEffect(() => {
-        initializeShoe();
-      }, [deckCount]);
-
-      const initializeShoe = () => {
+      // ── Build & shuffle shoe ──
+      const buildShoe = useCallback(() => {
         const suits = ['♠', '♣', '♥', '♦'];
         const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-        const newShoe = [];
-        
+        const cards = [];
         for (let d = 0; d < deckCount; d++) {
-          for (let suit of suits) {
-            for (let rank of ranks) {
-              newShoe.push({ rank, suit });
+          for (const suit of suits) {
+            for (const rank of ranks) {
+              cards.push({ rank, suit });
             }
           }
         }
-        
-        // Shuffle
-        for (let i = newShoe.length - 1; i > 0; i--) {
+        // Fisher-Yates shuffle
+        for (let i = cards.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
-          [newShoe[i], newShoe[j]] = [newShoe[j], newShoe[i]];
+          [cards[i], cards[j]] = [cards[j], cards[i]];
         }
-        
-        setShoe(newShoe);
-        setCurrentCardIndex(0);
-        setTrueCount(0);
-        setCardsDealt(0);
-        setCurrentCard(null);
-      };
+        return cards;
+      }, [deckCount]);
 
+      // ── Red 7 card value ──
       const getCardValue = (card) => {
         if (['2', '3', '4', '5', '6'].includes(card.rank)) return 1;
         if (card.rank === '7' && (card.suit === '♥' || card.suit === '♦')) return 1;
@@ -131,257 +177,430 @@
         return 0;
       };
 
-      const dealNextCard = () => {
-        if (currentCardIndex >= shoe.length) {
-          setIsPlaying(false);
+      // ── Initialize / Reset ──
+      const initialize = useCallback(() => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        const newShoe = buildShoe();
+        shoeRef.current = newShoe;
+        indexRef.current = 0;
+        countRef.current = 0;
+        setShoe(newShoe);
+        setCurrentCardIndex(0);
+        setTrueCount(0);
+        setCurrentCard(null);
+        setCardKey(0);
+        setUserCount('');
+        setResult(null);
+      }, [buildShoe]);
+
+      useEffect(() => { initialize(); }, [initialize]);
+
+      // ── Deal next card (uses refs for interval accuracy) ──
+      const dealCard = useCallback(() => {
+        const idx = indexRef.current;
+        const cards = shoeRef.current;
+        if (idx >= cards.length) {
+          // Shoe exhausted — auto-stop for verification
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          setPhase(PHASE.VERIFY);
           return;
         }
+        const card = cards[idx];
+        const value = getCardValue(card);
+        indexRef.current = idx + 1;
+        countRef.current = countRef.current + value;
 
-        const card = shoe[currentCardIndex];
-        const cardValue = getCardValue(card);
-        
         setCurrentCard(card);
-        setTrueCount(prev => prev + cardValue);
-        setCurrentCardIndex(prev => prev + 1);
-        setCardsDealt(prev => prev + 1);
-      };
+        setCardKey(k => k + 1);
+        setCurrentCardIndex(idx + 1);
+        setTrueCount(countRef.current);
+      }, []);
 
-      useEffect(() => {
-        if (isPlaying) {
-          intervalRef.current = setInterval(dealNextCard, speed);
-        } else {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-        }
-        
-        return () => {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-        };
-      }, [isPlaying, speed, currentCardIndex, shoe]);
+      // ── Start dealing ──
+      const startDealing = useCallback(() => {
+        setPhase(PHASE.RUNNING);
+        // Deal first card immediately
+        dealCard();
+        intervalRef.current = setInterval(dealCard, speed);
+      }, [dealCard, speed]);
 
-      const checkCount = () => {
-        const userValue = parseInt(userCount);
-        if (isNaN(userValue)) return;
-        
-        const correct = userValue === trueCount;
-        setIsCorrect(correct);
-        setShowFeedback(true);
-        setAccuracy(prev => ({
+      // ── Pause ──
+      const pauseDealing = useCallback(() => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        setPhase(PHASE.PAUSED);
+      }, []);
+
+      // ── Resume ──
+      const resumeDealing = useCallback(() => {
+        setPhase(PHASE.RUNNING);
+        dealCard();
+        intervalRef.current = setInterval(dealCard, speed);
+      }, [dealCard, speed]);
+
+      // ── Stop → go to verify ──
+      const stopAndVerify = useCallback(() => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        setPhase(PHASE.VERIFY);
+      }, []);
+
+      // ── Submit count ──
+      const submitCount = useCallback(() => {
+        const parsed = parseInt(userCount, 10);
+        if (isNaN(parsed)) return;
+
+        const correct = parsed === trueCount;
+        const diff = Math.abs(parsed - trueCount);
+        setResult({ correct, trueCount, userCount: parsed, diff });
+        setStats(prev => ({
           correct: prev.correct + (correct ? 1 : 0),
-          total: prev.total + 1
+          total: prev.total + 1,
         }));
-        
-        setTimeout(() => {
-          setShowFeedback(false);
-          setUserCount('');
-        }, 1500);
-      };
+        setPhase(PHASE.RESULT);
+      }, [userCount, trueCount]);
 
-      const reset = () => {
-        setIsPlaying(false);
-        initializeShoe();
-        setUserCount('');
-        setShowFeedback(false);
-        setAccuracy({ correct: 0, total: 0 });
-      };
+      // ── Try Again ──
+      const tryAgain = useCallback(() => {
+        initialize();
+        setPhase(PHASE.SETUP);
+      }, [initialize]);
 
-      const getCardColor = (suit) => {
-        return (suit === '♥' || suit === '♦') ? 'text-red-600' : 'text-gray-900';
-      };
+      // ── Focus input when verify phase starts ──
+      useEffect(() => {
+        if (phase === PHASE.VERIFY) {
+          setTimeout(() => inputRef.current?.focus(), 300);
+        }
+      }, [phase]);
 
-      const decksRemaining = ((shoe.length - currentCardIndex) / 52).toFixed(1);
-      const accuracyPercent = accuracy.total > 0 
-        ? ((accuracy.correct / accuracy.total) * 100).toFixed(1) 
-        : 0;
+      // ── Cleanup interval on unmount ──
+      useEffect(() => {
+        return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+      }, []);
 
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-green-800 to-green-900 p-4">
-          <div className="max-w-md mx-auto">
+      // ── Speed change while running ──
+      useEffect(() => {
+        if (phase === PHASE.RUNNING) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          intervalRef.current = setInterval(dealCard, speed);
+        }
+      }, [speed, phase, dealCard]);
+
+      // ── Computed values ──
+      const cardsDealt = currentCardIndex;
+      const totalCards = shoe.length;
+      const progress = totalCards > 0 ? (cardsDealt / totalCards) * 100 : 0;
+      const decksRemaining = ((totalCards - cardsDealt) / 52).toFixed(1);
+
+      // ── SETUP phase ──
+      if (phase === PHASE.SETUP) {
+        return (
+          <div className="h-full flex flex-col bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white">
             {/* Header */}
-            <div className="bg-white rounded-t-2xl p-4 shadow-lg">
-              <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-900">Red 7 Trainer</h1>
-                <button
-                  onClick={() => setShowSettings(!showSettings)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  {showSettings ? <XIcon /> : <SettingsIcon />}
-                </button>
+            <div className="pt-8 pb-4 px-6 text-center">
+              <h1 className="text-3xl font-black tracking-tight">Red 7 Trainer</h1>
+              <p className="text-gray-500 text-sm mt-1">Card Counting Practice</p>
+            </div>
+
+            {/* Settings */}
+            <div className="flex-1 px-6 flex flex-col justify-center gap-8 max-w-md mx-auto w-full">
+
+              {/* Speed Control */}
+              <div>
+                <div className="flex justify-between items-baseline mb-3">
+                  <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Speed</span>
+                  <span className="text-lg font-bold text-white">
+                    {(speed / 1000).toFixed(1)}s
+                    <span className="text-sm font-normal text-gray-500 ml-2">{speedLabel(speed)}</span>
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="300"
+                  max="2000"
+                  step="100"
+                  value={2300 - speed}
+                  onChange={(e) => setSpeed(2300 - parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-600 mt-2">
+                  <span>Slow (2.0s)</span>
+                  <span>Fast (0.3s)</span>
+                </div>
               </div>
-              
-              {/* Stats */}
-              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
-                <div className="bg-gray-50 rounded-lg p-2">
-                  <div className="text-xs text-gray-600">Cards</div>
-                  <div className="text-lg font-bold">{cardsDealt}</div>
+
+              {/* Deck Count */}
+              <div>
+                <div className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Shoe Size</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[2, 6, 8].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => { setDeckCount(n); }}
+                      className={`py-3 rounded-xl font-bold text-lg transition-all ${
+                        deckCount === n
+                          ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 scale-105'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}
+                    >
+                      {n} {n === 1 ? 'Deck' : 'Decks'}
+                    </button>
+                  ))}
                 </div>
-                <div className="bg-gray-50 rounded-lg p-2">
-                  <div className="text-xs text-gray-600">Decks Left</div>
-                  <div className="text-lg font-bold">{decksRemaining}</div>
+              </div>
+
+              {/* Red 7 Reference */}
+              <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Red 7 System</div>
+                <div className="grid grid-cols-2 gap-y-1 text-sm">
+                  <div className="text-emerald-400 font-medium">2, 3, 4, 5, 6 → +1</div>
+                  <div className="text-red-400 font-medium">10, J, Q, K, A → −1</div>
+                  <div className="text-emerald-400 font-medium">Red 7 (♥♦) → +1</div>
+                  <div className="text-gray-500 font-medium">Black 7 (♠♣) → 0</div>
+                  <div className="text-gray-500 font-medium">8, 9 → 0</div>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-2">
-                  <div className="text-xs text-gray-600">Accuracy</div>
-                  <div className="text-lg font-bold">{accuracyPercent}%</div>
+              </div>
+
+              {/* Stats from previous rounds */}
+              {stats.total > 0 && (
+                <div className="text-center text-sm text-gray-500">
+                  Session: {stats.correct}/{stats.total} correct ({((stats.correct / stats.total) * 100).toFixed(0)}%)
                 </div>
+              )}
+            </div>
+
+            {/* Start Button */}
+            <div className="px-6 pb-8">
+              <button
+                onClick={() => {
+                  initialize();
+                  setTimeout(startDealing, 100);
+                }}
+                className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-2xl font-black text-xl shadow-lg shadow-emerald-600/30 transition-all active:scale-[0.98]"
+              >
+                ▶ Start
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // ── RUNNING / PAUSED phases (card display) ──
+      if (phase === PHASE.RUNNING || phase === PHASE.PAUSED) {
+        return (
+          <div className="h-full flex flex-col bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white">
+            {/* Top bar: progress + stats */}
+            <div className="px-4 pt-3 pb-2">
+              {/* Progress bar */}
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mb-3">
+                <div
+                  className="h-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex justify-between items-center text-xs text-gray-500">
+                <div className="flex items-center gap-2">
+                  {phase === PHASE.RUNNING && <div className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />}
+                  {phase === PHASE.PAUSED && <div className="w-2 h-2 rounded-full bg-amber-500" />}
+                  <span>{cardsDealt} cards</span>
+                </div>
+                <span>{decksRemaining} decks left</span>
               </div>
             </div>
 
-            {/* Settings Panel */}
-            {showSettings && (
-              <div className="bg-white border-t border-gray-200 p-4">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Speed: {(speed / 1000).toFixed(1)}s per card
-                    </label>
-                    <input
-                      type="range"
-                      min="500"
-                      max="5000"
-                      step="100"
-                      value={speed}
-                      onChange={(e) => setSpeed(parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                      <span>0.5s (Fast)</span>
-                      <span>5s (Slow)</span>
-                    </div>
-                  </div>
+            {/* Speed control (always visible while running) */}
+            <div className="px-6 py-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-600 w-8">🐢</span>
+                <input
+                  type="range"
+                  min="300"
+                  max="2000"
+                  step="100"
+                  value={2300 - speed}
+                  onChange={(e) => setSpeed(2300 - parseInt(e.target.value))}
+                  className="flex-1"
+                />
+                <span className="text-xs text-gray-600 w-8">🐇</span>
+                <span className="text-sm font-bold text-gray-400 w-12 text-right">{(speed / 1000).toFixed(1)}s</span>
+              </div>
+            </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Shoe Size
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => { setDeckCount(6); reset(); }}
-                        className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
-                          deckCount === 6 
-                            ? 'bg-green-600 text-white' 
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        6 Decks
-                      </button>
-                      <button
-                        onClick={() => { setDeckCount(8); reset(); }}
-                        className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
-                          deckCount === 8 
-                            ? 'bg-green-600 text-white' 
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        8 Decks
-                      </button>
-                    </div>
+            {/* Full-screen card area */}
+            <div className="flex-1 flex items-center justify-center px-6">
+              {currentCard ? (
+                <div
+                  key={cardKey}
+                  className="bg-white rounded-3xl shadow-2xl w-full max-w-xs aspect-[2.5/3.5] flex items-center justify-center card-animate"
+                >
+                  <CardDisplay card={currentCard} speed={speed} />
+                </div>
+              ) : (
+                <div className="text-gray-600 text-center">
+                  <div className="text-6xl mb-4">🃏</div>
+                  <div className="text-lg">Dealing...</div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom controls */}
+            <div className="px-6 pb-8 pt-4 flex gap-3">
+              {phase === PHASE.RUNNING ? (
+                <>
+                  <button
+                    onClick={pauseDealing}
+                    className="flex-1 py-4 bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white rounded-2xl font-bold text-lg transition-all active:scale-[0.98]"
+                  >
+                    ⏸ Pause
+                  </button>
+                  <button
+                    onClick={stopAndVerify}
+                    className="flex-1 py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-2xl font-bold text-lg transition-all active:scale-[0.98]"
+                  >
+                    ⏹ Stop
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={resumeDealing}
+                    className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-2xl font-bold text-lg transition-all active:scale-[0.98]"
+                  >
+                    ▶ Resume
+                  </button>
+                  <button
+                    onClick={stopAndVerify}
+                    className="flex-1 py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-2xl font-bold text-lg transition-all active:scale-[0.98]"
+                  >
+                    ⏹ Stop & Check
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // ── VERIFY phase ──
+      if (phase === PHASE.VERIFY) {
+        return (
+          <div className="h-full flex flex-col bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white">
+            <div className="flex-1 flex flex-col items-center justify-center px-6 slide-up">
+              {/* Cards dealt summary */}
+              <div className="text-gray-500 text-sm mb-2">{cardsDealt} cards dealt</div>
+
+              {/* Last card shown */}
+              {currentCard && (
+                <div className="mb-8 opacity-30">
+                  <div className="bg-white rounded-2xl px-8 py-6 inline-flex flex-col items-center" style={{ color: (currentCard.suit === '♥' || currentCard.suit === '♦') ? '#dc2626' : '#111827' }}>
+                    <div className="text-3xl font-bold">{currentCard.rank}</div>
+                    <div className="text-4xl">{currentCard.suit}</div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Card Display Area */}
-            <div className="bg-gradient-to-br from-green-700 to-green-800 p-6 min-h-[450px] flex flex-col">
-              {/* Current Card Display */}
-              <div className="flex-1 flex items-center justify-center mb-6">
-                {!currentCard ? (
-                  <div className="text-green-200 text-center py-12">
-                    <div className="text-lg font-medium">Press Start to begin</div>
-                    <div className="text-sm mt-2 opacity-75">Cards will appear here</div>
-                  </div>
-                ) : (
-                  <div 
-                    className={`bg-white rounded-2xl shadow-2xl px-12 py-16 transition-all ${getCardColor(currentCard.suit)}`}
-                    style={{
-                      minWidth: '160px',
-                      textAlign: 'center'
-                    }}
-                  >
-                    <div className="text-6xl font-bold mb-2">{currentCard.rank}</div>
-                    <div className="text-8xl leading-none">{currentCard.suit}</div>
-                  </div>
-                )}
-              </div>
-
-              {/* Count Input */}
-              <div className="bg-white bg-opacity-90 rounded-xl p-4 backdrop-blur">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  What's the count?
+              {/* Count input */}
+              <div className="w-full max-w-sm">
+                <label className="block text-center text-xl font-bold mb-4">
+                  What's the running count?
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    value={userCount}
-                    onChange={(e) => setUserCount(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && checkCount()}
-                    placeholder="Enter count"
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg font-bold text-center focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
+                <input
+                  ref={inputRef}
+                  type="number"
+                  inputMode="numeric"
+                  pattern="-?[0-9]*"
+                  value={userCount}
+                  onChange={(e) => setUserCount(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submitCount()}
+                  placeholder="0"
+                  className="w-full text-center text-5xl font-black py-4 bg-gray-800 border-2 border-gray-700 rounded-2xl text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 placeholder-gray-700"
+                />
+
+                {/* +/- stepper buttons for mobile */}
+                <div className="flex gap-3 mt-4">
                   <button
-                    onClick={checkCount}
-                    disabled={!userCount}
-                    className="px-6 py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    onClick={() => setUserCount(prev => String((parseInt(prev) || 0) - 1))}
+                    className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 active:bg-gray-600 text-white rounded-xl font-bold text-2xl transition-all active:scale-95"
                   >
-                    Check
+                    −
+                  </button>
+                  <button
+                    onClick={() => setUserCount(prev => String((parseInt(prev) || 0) + 1))}
+                    className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 active:bg-gray-600 text-white rounded-xl font-bold text-2xl transition-all active:scale-95"
+                  >
+                    +
                   </button>
                 </div>
 
-                {showFeedback && (
-                  <div className={`mt-3 p-3 rounded-lg text-center font-bold ${
-                    isCorrect 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {isCorrect ? '✓ Correct!' : `✗ Wrong - Count is ${trueCount}`}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="bg-white rounded-b-2xl p-4 shadow-lg">
-              <div className="flex gap-2">
                 <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="flex-1 py-4 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                  onClick={submitCount}
+                  disabled={userCount === '' || isNaN(parseInt(userCount))}
+                  className="w-full mt-6 py-5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-2xl font-black text-xl shadow-lg shadow-emerald-600/30 disabled:shadow-none transition-all active:scale-[0.98]"
                 >
-                  {isPlaying ? (
-                    <>
-                      <PauseIcon />
-                      Pause
-                    </>
-                  ) : (
-                    <>
-                      <PlayIcon />
-                      Start
-                    </>
-                  )}
+                  Submit
                 </button>
-                <button
-                  onClick={reset}
-                  className="px-6 py-4 bg-gray-600 text-white rounded-xl font-bold hover:bg-gray-700 transition-colors"
-                >
-                  <RotateCcwIcon />
-                </button>
-              </div>
-
-              {/* Instructions */}
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">
-                <div className="font-bold mb-1">Red 7 System:</div>
-                <div className="text-xs space-y-0.5">
-                  <div>• 2-6: +1</div>
-                  <div>• Red 7 (♥♦): +1 | Black 7 (♠♣): 0</div>
-                  <div>• 8-9: 0</div>
-                  <div>• 10-A: -1</div>
-                </div>
               </div>
             </div>
           </div>
-        </div>
-      );
+        );
+      }
+
+      // ── RESULT phase ──
+      if (phase === PHASE.RESULT && result) {
+        return (
+          <div className="h-full flex flex-col bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white">
+            <div className="flex-1 flex flex-col items-center justify-center px-6 slide-up">
+              {/* Result icon */}
+              <div className="text-8xl mb-6">
+                {result.correct ? '✅' : '❌'}
+              </div>
+
+              {/* Message */}
+              <div className={`text-3xl font-black mb-8 ${result.correct ? 'text-emerald-400' : 'text-red-400'}`}>
+                {result.correct ? 'Correct!' : `Off by ${result.diff}`}
+              </div>
+
+              {/* Count comparison */}
+              <div className="w-full max-w-sm bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50 mb-8">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-gray-400">Your count</span>
+                  <span className={`text-3xl font-black ${result.correct ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {result.userCount}
+                  </span>
+                </div>
+                <div className="h-px bg-gray-700 mb-4" />
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Correct count</span>
+                  <span className="text-3xl font-black text-white">{result.trueCount}</span>
+                </div>
+              </div>
+
+              {/* Session stats */}
+              <div className="text-sm text-gray-500 mb-2">
+                {cardsDealt} cards at {(speed / 1000).toFixed(1)}s · {deckCount}-deck shoe
+              </div>
+              <div className="text-sm text-gray-500">
+                Session: {stats.correct}/{stats.total} correct
+                {stats.total > 0 && ` (${((stats.correct / stats.total) * 100).toFixed(0)}%)`}
+              </div>
+            </div>
+
+            {/* Try Again */}
+            <div className="px-6 pb-8">
+              <button
+                onClick={tryAgain}
+                className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-2xl font-black text-xl shadow-lg shadow-emerald-600/30 transition-all active:scale-[0.98]"
+              >
+                🔄 Try Again
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      return null;
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<Red7CardCountingTrainer />);
+    root.render(<Red7Trainer />);
   </script>
 </body>
 </html>
